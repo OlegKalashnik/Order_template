@@ -1,13 +1,19 @@
 from order_template_gui import *
 from openpyxl import *
+from openpyxl.styles import PatternFill, Border, Side, Alignment, Protection, Font, Side
 import sys
 from PyQt5.QtWidgets import QFileDialog, QTableWidgetItem
+from datetime import *
+import os
+from xlrd import open_workbook
+
 
 big_dict = {}
 stock_dict = {}
 stock_path = ''
 stock_start_row = 6
 stock_ysku_col = 2
+stock_sku_col = 1
 stock_value_col = 6
 assr_dict = {}
 assortment_path = ''
@@ -20,6 +26,14 @@ stat_start_row = 3
 stat_sku_col = 4
 stat_value_col = 6
 route_path = ''
+route_dict = {}
+kotelniki_list = []
+sofino_list = []
+ex_path_1 = ''
+ex_path_2 = ''
+ex_path_3 = ''
+ex_path_4 = ''
+ex_set = set()
 
 
 class MyWin(QtWidgets.QMainWindow):
@@ -37,80 +51,165 @@ class MyWin(QtWidgets.QMainWindow):
         self.ui.route_Button.clicked.connect(
             lambda: self.ui.route_kotelniki_path.setText(QFileDialog.getOpenFileName()[0]))
         self.ui.create_Button.clicked.connect(self.get_paths)
+        self.ui.ex_Button_1.clicked.connect(lambda: self.ui.ex_path_1.setText(QFileDialog.getOpenFileName()[0]))
+        self.ui.ex_Button_2.clicked.connect(lambda: self.ui.ex_path_2.setText(QFileDialog.getOpenFileName()[0]))
+        self.ui.ex_Button_3.clicked.connect(lambda: self.ui.ex_path_3.setText(QFileDialog.getOpenFileName()[0]))
+        self.ui.ex_Button_4.clicked.connect(lambda: self.ui.ex_path_4.setText(QFileDialog.getOpenFileName()[0]))
 
     def get_paths(self):
-        global stock_path, assortment_path, stat_sales_path, route_path
+        global stock_path, assortment_path, stat_sales_path, route_path, ex_path_1, ex_path_2, ex_path_3, ex_path_4
         stock_path = self.ui.stock_path.text()
         assortment_path = self.ui.assortment_path.text()
         stat_sales_path = self.ui.stat_sales_path.text()
         route_path = self.ui.route_kotelniki_path.text()
+        ex_path_1 = self.ui.ex_path_1.text()
+        ex_path_2 = self.ui.ex_path_2.text()
+        ex_path_3 = self.ui.ex_path_3.text()
+        ex_path_4 = self.ui.ex_path_4.text()
+
+        self.check_ex()
         self.create_assortment_dict()
         self.create_stock_dict()
         self.create_stat_dict()
         self.create_big_dict()
-        #TODO отчет заказы обработать способом дубль плюс
-        #TODO фильтруя через остатки в биг создать словарь, остатик вытягивать из бига
-        #TODO удалить из бига не пустые остатки
-        #TODO апдэйт буги сделать
+        self.create_routes()
+        self.write_files()
 
+
+    def check_ex(self):
+        if ex_path_1:
+            self.create_ex(ex_path_1)
+        if ex_path_2:
+            self.create_ex(ex_path_2)
+        if ex_path_3:
+            self.create_ex(ex_path_3)
+        if ex_path_4:
+            self.create_ex(ex_path_4)
+
+    def create_ex(self, path):
+        try:
+            wb = load_workbook(path)
+            ws = wb.worksheets[0]
+            mr = ws.max_row
+            for i in range(1, mr + 1):
+                ex_set.add(str(ws.cell(row=i, column=1).value).strip())
+        except:
+            wb = open_workbook(path, on_demand=True)
+            ws = wb.sheet_by_index(0)
+            mr = ws.nrows
+            for i in range(0, mr):
+                ex_set.add(str(ws.cell_value(rowx=i, colx=0)).strip())
+
+    def write_files(self):
+        # определяем стили
+        fill = PatternFill(fill_type='solid',
+                           start_color='c1c1c1',
+                           end_color='c2c2c2')
+
+        today = datetime.today()
+        today = today.strftime('%d.%m.%Y')
+        file_name = today + '_Order.xlsx'
+        wb = Workbook()
+        ws_k = wb.active
+        ws_k.title = 'Котельники'
+
+        for row in kotelniki_list:
+            ws_k.append(row)
+        # раскрашивание фона для заголовков
+        ws_k['A1'].fill = fill
+        ws_k['B1'].fill = fill
+        ws_k['C1'].fill = fill
+        ws_k['D1'].fill = fill
+        ws_k['E1'].fill = fill
+
+        ws_s = wb.create_sheet('Софьино')
+
+        for row in sofino_list:
+            ws_s.append(row)
+            # раскрашивание фона для заголовков
+        ws_s['A1'].fill = fill
+        ws_s['B1'].fill = fill
+        ws_s['C1'].fill = fill
+        ws_s['D1'].fill = fill
+        ws_s['E1'].fill = fill
+
+        wb.save(file_name)
+        os.startfile(file_name)
+
+    def create_routes(self):
+        global route_dict, kotelniki_list, sofino_list
+        kotelniki_list.append(['SKU', 'YSKU', 'ART', 'Stock', 'Order'])
+        sofino_list.append(['SKU', 'YSKU', 'ART', 'Stock', 'Order'])
+        route = load_workbook(route_path)
+        route_sheet = route.worksheets[0]
+        route_dict = {x[0].value for x in route_sheet}
+
+        for big_key in big_dict:
+            if big_key in route_dict:
+                kotelniki_list.append([big_key, big_dict[big_key]['YSKU'], big_dict[big_key]['ART'],
+                                       big_dict[big_key]['Stock'], big_dict[big_key]['Order']])
+            else:
+                sofino_list.append([big_key, big_dict[big_key]['YSKU'], big_dict[big_key]['ART'],
+                                       big_dict[big_key]['Stock'], big_dict[big_key]['Order']])
 
     def create_big_dict(self):
-        print('start big')
-        for big_key in big_dict:
-            if big_key in stock_dict:
-                if big_dict[big_key]['Stock'] > stat_dict[big_key]['Order'] / 2:
-                    big_dict.pop(big_key)
+        to_del = []
+        for big_key, big_val in big_dict.items():
+            if big_key in ex_set:
+                to_del.append(big_key)
+                continue
+            if big_key in stat_dict:
+                if big_val['Stock'] > stat_dict[big_key]['Order'] / 2:
+                    to_del.append(big_key)
                 else:
                     big_dict[big_key]['Order'] = stat_dict[big_key]['Order']
-                    print('del', big_key)
-            elif big_dict[big_key]['Stock'] > 0:
-                big_dict.pop(big_key)
-                print('no_orders_del', big_key)
+            elif big_val['Stock'] > 0:
+                to_del.append(big_key)
+        for key in to_del:
+            big_dict.pop(key)
         for key in big_dict:
-            print(key, big_dict[key])
-
+            big_dict[key]['ART'] = assr_dict[key]['ART']
 
     def create_stat_dict(self):
-        print('start stat')
         global stat_dict
         stat = load_workbook(stat_sales_path)
         stat_sheet = stat.worksheets[0]
-        self.del_rep(stat_sheet, stat_start_row, stat_sku_col, stat_value_col)
-        stat_dict = {x[3].value: {'YSKU': '', 'ART': 'УТ', 'Stock': 0, 'Order': int(x[5].value)}
-                      for i, x in enumerate(stat_sheet) if x[3].value in assr_dict and i >= stat_start_row - 1}
+        mr = stat_sheet.max_row
+
+        for i in range(stat_start_row, mr + 1):
+            sku = str(stat_sheet.cell(row=i, column=stat_sku_col).value).strip()
+            order = int(stat_sheet.cell(row=i, column=stat_value_col).value)
+            if sku in big_dict:
+                if sku not in stat_dict:
+                    stat_dict[sku] = {'YSKU': '', 'ART': 'УТ', 'Stock': 0, 'Order': order}
+                elif sku in stat_dict:
+                    stat_dict[sku]['Order'] += order
 
     def create_assortment_dict(self):
-        print('start assr')
         global assr_dict
         assr = load_workbook(assortment_path)
         assr_sheet = assr.worksheets[2]
-        assr_dict = {x[1].value: {'YSKU': x[28].value, 'ART': x[9].value, 'Stock': 0, 'Order': 5} \
-                      for i, x in enumerate(assr_sheet) if i > 3}
+        assr_dict = {x[1].value: {'YSKU': x[28].value, 'ART': x[9].value, 'Stock': 0, 'Order': 5}
+                     for i, x in enumerate(assr_sheet) if i > 3}
 
     def create_stock_dict(self):
-        print('start stock')
         global stock_dict, big_dict
         stock = load_workbook(stock_path)
         stock_sheet = stock.worksheets[0]
-        self.del_rep(stock_sheet, stock_start_row, stock_ysku_col, stock_value_col)
-        stock_dict = {x[0].value: {'YSKU': x[1].value, 'ART': 'УТ', 'Stock': int(x[5].value), 'Order': 5} \
-                      for i, x in enumerate(stock_sheet) if i >= stock_start_row - 1 and x[0].value in assr_dict}
+        mr = stock_sheet.max_row
+
+        for i in range(stock_start_row, mr + 1):
+            sku = str(stock_sheet.cell(row=i, column=stock_sku_col).value).strip()
+            ysku = str(stock_sheet.cell(row=i, column=stock_ysku_col).value).strip()
+            stock_stock = int(stock_sheet.cell(row=i, column=stock_value_col).value)
+            if sku in assr_dict:
+                if sku not in stock_dict:
+                    stock_dict[sku] = {'YSKU': ysku, 'ART': 'УТ', 'Stock': stock_stock, 'Order': 5}
+                elif sku in stock_dict:
+                    stock_dict[sku]['Stock'] += stock_stock
+
         big_dict = assr_dict.copy()
         big_dict.update(stock_dict)
-
-
-    def del_rep(self, sheet, start_row, ysku_col, value_col):
-        sheet_mr = sheet.max_row
-        for i in range(start_row, sheet_mr + 1):
-            ysku = str(sheet.cell(row=i, column=ysku_col).value).strip()
-            if ysku == None or ysku == '' or ysku == 'None':
-                continue
-            for x in range(sheet_mr, i, - 1):
-                if ysku == str(sheet.cell(row=x, column=ysku_col).value).strip():
-                    founded_val = int(sheet.cell(row=i, column=value_col).value)
-                    sheet.cell(row=i, column=value_col).value = \
-                        sheet.cell(row=x, column=value_col).value + founded_val
-                    sheet.delete_rows(x)
 
 
 if __name__ == "__main__":
